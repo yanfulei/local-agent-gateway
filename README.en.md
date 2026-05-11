@@ -87,6 +87,10 @@ MVP stores Feishu credentials in plaintext local JSON, matching the personal loc
 
 - codex
 
+## Contributors
+
+- codex
+
 ## Verification
 
 ```bash
@@ -102,4 +106,3 @@ API smoke tested:
 - `GET /api/environments/:environmentId/sessions/:sessionKey/messages`
 
 Browser smoke tested against http://127.0.0.1:3030.
-
