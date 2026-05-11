@@ -57,5 +57,13 @@
   },
   "overrides": {
     "axios": "^1.16.0"
+  },
+  "homepage": "https://github.com/yanfulei/local-agent-gateway#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yanfulei/local-agent-gateway.git"
+  },
+  "bugs": {
+    "url": "https://github.com/yanfulei/local-agent-gateway/issues"
   }
 }
