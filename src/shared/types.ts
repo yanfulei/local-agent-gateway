@@ -15,6 +15,19 @@ export type AgentSessionStatusAlias = AgentSessionStatus;
 export type ProviderType = "codex" | "claude-code" | "openclaw" | "hermes";
 export type ChannelType = "lark" | "dingtalk" | "wechat";
 export type MessageSource = "web" | ChannelType;
+export const PROVIDER_CAPABILITIES = [
+  "session.list",
+  "session.create",
+  "session.history",
+  "message.send",
+  "attachment.input",
+  "task.cancel",
+  "approval",
+  "app-server",
+  "exec-fallback"
+] as const;
+export type ProviderCapability = (typeof PROVIDER_CAPABILITIES)[number];
+export const CODEX_PROVIDER_CAPABILITIES = PROVIDER_CAPABILITIES;
 
 export type ProviderConfig = {
   id: string;
@@ -22,6 +35,7 @@ export type ProviderConfig = {
   name: string;
   enabled: boolean;
   command: string;
+  capabilities?: ProviderCapability[];
   preferAppServer?: boolean;
   appServerListen?: string;
 };
@@ -272,6 +286,10 @@ export type UpdateConfigInput = Partial<
     codex: Partial<GatewayConfig["codex"]>;
     providers: ProviderConfig[];
   }
+>;
+
+export type UpdateProviderInput = Partial<
+  Pick<ProviderConfig, "name" | "enabled" | "command" | "preferAppServer" | "appServerListen">
 >;
 
 export type CreateEnvironmentInput = {

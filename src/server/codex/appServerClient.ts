@@ -42,6 +42,7 @@ export class CodexAppServerClient {
   private nextId = 1;
   private buffer = "";
   private initialized = false;
+  private starting?: Promise<void>;
   private readonly pending = new Map<JsonRpcId, PendingRequest>();
   private readonly emitter = new EventEmitter();
   private requestHandler?: (request: CodexAppServerRequest) => Promise<unknown> | unknown;
@@ -65,7 +66,21 @@ export class CodexAppServerClient {
     };
   }
 
-  async ensureStarted(): Promise<void> {
+  async ensureStarted(timeoutMs = 30000): Promise<void> {
+    if (this.child && this.initialized) {
+      return;
+    }
+    if (this.starting) {
+      await this.starting;
+      return;
+    }
+    this.starting = this.start(timeoutMs).finally(() => {
+      this.starting = undefined;
+    });
+    await this.starting;
+  }
+
+  private async start(timeoutMs: number): Promise<void> {
     if (this.child && this.initialized) {
       return;
     }
@@ -76,16 +91,20 @@ export class CodexAppServerClient {
     }
 
     if (!this.initialized) {
-      await this.request("initialize", {
-        clientInfo: {
-          name: "local-agent-gateway",
-          title: "Local Agent Gateway",
-          version: "0.1.0"
+      await this.request(
+        "initialize",
+        {
+          clientInfo: {
+            name: "local-agent-gateway",
+            title: "Local Agent Gateway",
+            version: "0.1.0"
+          },
+          capabilities: {
+            experimentalApi: true
+          }
         },
-        capabilities: {
-          experimentalApi: true
-        }
-      });
+        timeoutMs
+      );
       this.notify("initialized");
       this.initialized = true;
     }
@@ -126,6 +145,7 @@ export class CodexAppServerClient {
 
   async stop(): Promise<void> {
     if (!this.child) {
+      this.starting = undefined;
       return;
     }
     const child = this.child;
@@ -137,6 +157,7 @@ export class CodexAppServerClient {
     }, 3000).unref();
     this.child = undefined;
     this.initialized = false;
+    this.starting = undefined;
   }
 
   private async ensureProcess(): Promise<void> {
@@ -148,7 +169,8 @@ export class CodexAppServerClient {
   }
 
   private startProcess(command: string): void {
-    this.child = execa(command, ["app-server", "--listen", "stdio://"], {
+    const listen = this.configStore.get().codex.appServerListen || "stdio://";
+    this.child = execa(command, ["app-server", "--listen", listen], {
       stdin: "pipe",
       stdout: "pipe",
       stderr: "pipe",

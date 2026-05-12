@@ -17,7 +17,8 @@ export async function pathExists(filePath: string): Promise<boolean> {
 export function safeJoin(base: string, ...parts: string[]): string {
   const resolved = path.resolve(base, ...parts);
   const root = path.resolve(base);
-  if (!resolved.startsWith(root)) {
+  const relative = path.relative(root, resolved);
+  if (relative.startsWith("..") || path.isAbsolute(relative)) {
     throw new Error(`Path escapes base directory: ${resolved}`);
   }
   return resolved;

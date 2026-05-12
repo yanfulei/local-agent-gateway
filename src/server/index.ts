@@ -2,9 +2,11 @@ import process from "node:process";
 import fastify from "fastify";
 import { CodexAppServerClient } from "./codex/appServerClient.js";
 import { CodexProvider } from "./codex/codexProvider.js";
+import { ChannelRegistry } from "./channels/channelRegistry.js";
 import { ConfigStore } from "./configStore.js";
 import { GatewayEventBus } from "./events.js";
 import { FeishuBotManager } from "./feishu/feishuBotManager.js";
+import { LarkChannelAdapter } from "./feishu/larkChannelAdapter.js";
 import { Logger } from "./logger.js";
 import { ATTACHMENT_DIR, DATA_DIR, LOG_DIR, RUNTIME_DIR } from "./paths.js";
 import { ProviderRegistry } from "./providers/providerRegistry.js";
@@ -27,15 +29,15 @@ async function main(): Promise<void> {
   const codexProvider = new CodexProvider(configStore, events, logger, appServer, stateStore);
   const providers = new ProviderRegistry();
   providers.register(codexProvider);
-  await providers.initAll();
 
   const taskQueue = new TaskQueue(providers, events, logger);
   const feishuBotManager = new FeishuBotManager(configStore, taskQueue, logger, providers);
-  await feishuBotManager.startAll();
+  const channels = new ChannelRegistry();
+  channels.register(new LarkChannelAdapter(feishuBotManager));
 
   events.subscribe((event) => {
     if (event.type === "task.updated") {
-      void feishuBotManager.updateTaskCard(event.task);
+      void channels.updateTaskMessage(event.task);
     }
   });
 
@@ -46,7 +48,7 @@ async function main(): Promise<void> {
     configStore,
     providers,
     taskQueue,
-    feishuBotManager,
+    channels,
     events,
     logger,
     appServer
@@ -61,15 +63,41 @@ async function main(): Promise<void> {
     scope: "server"
   });
 
+  void bootstrapIntegrations(providers, channels, logger);
+
   const shutdown = async () => {
     logger.info("Shutting down", { scope: "server" });
-    await feishuBotManager.stopAll();
+    await channels.stopAll();
     await appServer.stop();
     await app.close();
     process.exit(0);
   };
   process.on("SIGINT", () => void shutdown());
   process.on("SIGTERM", () => void shutdown());
+}
+
+async function bootstrapIntegrations(
+  providers: ProviderRegistry,
+  channels: ChannelRegistry,
+  logger: Logger
+): Promise<void> {
+  try {
+    await providers.initAll();
+  } catch (error) {
+    logger.error("Provider bootstrap failed; Web/API will keep running", {
+      scope: "server",
+      data: String(error)
+    });
+  }
+
+  try {
+    await channels.startAll();
+  } catch (error) {
+    logger.error("Channel bootstrap failed; Web/API will keep running", {
+      scope: "server",
+      data: String(error)
+    });
+  }
 }
 
 main().catch((error) => {

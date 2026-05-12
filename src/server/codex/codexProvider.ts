@@ -9,11 +9,12 @@ import type {
   GatewayTask,
   TaskMessage
 } from "../../shared/types.js";
+import { CODEX_PROVIDER_CAPABILITIES } from "../../shared/types.js";
 import type { ConfigStore } from "../configStore.js";
 import type { GatewayEventBus } from "../events.js";
 import type { Logger } from "../logger.js";
 import type { StateStore } from "../stateStore.js";
-import { LOG_DIR } from "../paths.js";
+import { ATTACHMENT_DIR, LOG_DIR } from "../paths.js";
 import { ensureDir } from "../utils/files.js";
 import { nowIso } from "../utils/time.js";
 import {
@@ -37,12 +38,14 @@ type ThreadRecord = CodexThreadSummary & {
 export class CodexProvider implements AgentProvider {
   readonly id = DEFAULT_CODEX_PROVIDER_ID;
   readonly type = "codex" as const;
+  readonly capabilities = CODEX_PROVIDER_CAPABILITIES;
 
   private readonly scanner = new CodexSessionScanner();
   private readonly sessionOverlays = new Map<string, ThreadRecord>();
   private readonly knownThreads = new Map<string, ThreadRecord>();
   private readonly activeTurns = new Map<string, { providerThreadId: string; turnId?: string }>();
   private readonly runningTasks = new Map<string, GatewayTask>();
+  private initialized = false;
   private readonly approvalWaiters = new Map<
     string,
     {
@@ -70,14 +73,14 @@ export class CodexProvider implements AgentProvider {
         createdByGateway: true
       });
     }
-    await this.appServer.ensureStarted();
     this.appServer.onRequest((request) => this.handleAppServerRequest(request));
-    const refreshedThreads = await this.refreshThreads();
+    const refreshedThreads = await this.refreshThreads({ quick: true });
     await this.migrateGatewayAliases(refreshedThreads);
+    this.initialized = true;
   }
 
-  async refreshThreads(): Promise<CodexThreadSummary[]> {
-    const fromAppServer = await this.listAppServerThreads();
+  async refreshThreads(options: { quick?: boolean } = {}): Promise<CodexThreadSummary[]> {
+    const fromAppServer = await this.listAppServerThreads(options);
     const historical = await this.scanner.scan();
     const codexThreads = mergeThreads(historical);
     const overlays = mergeThreads([...fromAppServer, ...this.sessionOverlays.values()]);
@@ -97,7 +100,10 @@ export class CodexProvider implements AgentProvider {
   }
 
   async listSessions(): Promise<CodexThreadSummary[]> {
-    return this.refreshThreads();
+    if (!this.initialized) {
+      await this.init();
+    }
+    return this.refreshThreads({ quick: true });
   }
 
   async createSession(input: CreateAgentSessionInput): Promise<CodexThreadSummary> {
@@ -140,7 +146,7 @@ export class CodexProvider implements AgentProvider {
   }
 
   async getSessionMessages(sessionKey: string, limit = 200): Promise<CodexThreadMessage[]> {
-    const refreshedThreads = await this.refreshThreads();
+    const refreshedThreads = await this.refreshThreads({ quick: true });
     const thread = this.resolveThreadRecord(sessionKey, refreshedThreads);
     if (!thread) {
       return [];
@@ -325,7 +331,8 @@ export class CodexProvider implements AgentProvider {
       await this.appServer.ensureStarted();
       const response = (await this.appServer.request("thread/start", {
         cwd,
-        ephemeral: false
+        ephemeral: false,
+        ...codexSafetyParams(cwd)
       })) as { thread?: { id?: string } };
       return response.thread?.id;
     } catch (error) {
@@ -339,16 +346,29 @@ export class CodexProvider implements AgentProvider {
     }
   }
 
-  private async listAppServerThreads(): Promise<CodexThreadSummary[]> {
+  private async listAppServerThreads(
+    options: { quick?: boolean } = {}
+  ): Promise<CodexThreadSummary[]> {
     if (!this.configStore.get().codex.preferAppServer) {
       return [];
     }
     try {
-      await this.appServer.ensureStarted();
-      const response = (await this.appServer.request("thread/list", {})) as {
+      await this.appServer.ensureStarted(options.quick ? 5000 : 30000);
+      const response = (await this.appServer.request(
+        "thread/list",
+        {
+          archived: false,
+          sourceKinds: ["cli", "vscode", "exec", "appServer", "unknown"],
+          sortKey: "updatedAt",
+          sortDirection: "desc",
+          limit: 200
+        },
+        options.quick ? 5000 : 30000
+      )) as {
         data?: Array<Record<string, unknown>>;
+        threads?: Array<Record<string, unknown>>;
       };
-      return (response.data ?? [])
+      return (response.data ?? response.threads ?? [])
         .map((thread) => threadSummaryFromAppServer(thread))
         .filter((thread): thread is CodexThreadSummary => Boolean(thread));
     } catch (error) {
@@ -410,7 +430,8 @@ export class CodexProvider implements AgentProvider {
             {
               threadId: providerThreadId,
               input: toUserInput(prompt, task.attachments),
-              cwd
+              cwd,
+              ...codexTurnSafetyParams(cwd)
             },
             30000
           )) as { turn?: { id?: string } };
@@ -424,7 +445,8 @@ export class CodexProvider implements AgentProvider {
             {
               threadId: providerThreadId,
               input: toUserInput(prompt, task.attachments),
-              cwd
+              cwd,
+              ...codexTurnSafetyParams(cwd)
             },
             30000
           )) as { turn?: { id?: string } };
@@ -688,7 +710,8 @@ export class CodexProvider implements AgentProvider {
     try {
       await this.appServer.request("thread/resume", {
         threadId: providerThreadId,
-        cwd
+        cwd,
+        ...codexSafetyParams(cwd)
       });
     } catch (error) {
       this.logger.warn("Failed to resume Codex session", {
@@ -848,6 +871,30 @@ function toUserInput(text: string, attachments: AttachmentInput[]): Array<Record
   return input;
 }
 
+function codexSafetyParams(cwd: string): Record<string, unknown> {
+  return {
+    approvalPolicy: "on-request",
+    approvalsReviewer: "client",
+    sandbox: "workspace-write",
+    cwd
+  };
+}
+
+function codexTurnSafetyParams(cwd: string): Record<string, unknown> {
+  return {
+    approvalPolicy: "on-request",
+    approvalsReviewer: "client",
+    sandboxPolicy: {
+      type: "workspaceWrite",
+      writableRoots: [cwd],
+      networkAccess: false,
+      excludeTmpdirEnvVar: false,
+      excludeSlashTmp: false
+    },
+    cwd
+  };
+}
+
 function stringValue(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value : undefined;
 }
@@ -921,11 +968,13 @@ async function appendLog(file: string, text: string): Promise<void> {
 }
 
 async function cleanupAttachments(attachments: AttachmentInput[]): Promise<void> {
+  const attachmentRoot = path.resolve(ATTACHMENT_DIR);
   const dirs = new Set(
     attachments
       .map((attachment) => attachment.localPath)
       .filter((localPath): localPath is string => Boolean(localPath))
-      .map((localPath) => path.dirname(localPath))
+      .map((localPath) => path.resolve(path.dirname(localPath)))
+      .filter((dir) => isPathInside(dir, attachmentRoot))
   );
   await Promise.all(
     [...dirs].map((dir) =>
@@ -934,6 +983,11 @@ async function cleanupAttachments(attachments: AttachmentInput[]): Promise<void>
       })
     )
   );
+}
+
+function isPathInside(candidate: string, parent: string): boolean {
+  const relative = path.relative(parent, candidate);
+  return relative === "" || (Boolean(relative) && !relative.startsWith("..") && !path.isAbsolute(relative));
 }
 
 function eventMatchesThread(event: CodexAppServerEvent, threadId: string): boolean {

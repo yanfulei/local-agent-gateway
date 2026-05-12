@@ -24,6 +24,8 @@ export type ResolvedSession = {
 
 export class ProviderRegistry {
   private readonly providers = new Map<string, AgentProvider>();
+  private readonly initialized = new Set<string>();
+  private readonly initializing = new Map<string, Promise<void>>();
 
   register(provider: AgentProvider): void {
     this.providers.set(provider.id, provider);
@@ -48,7 +50,7 @@ export class ProviderRegistry {
 
   async initAll(): Promise<void> {
     for (const provider of this.providers.values()) {
-      await provider.init();
+      await this.initProvider(provider);
     }
   }
 
@@ -73,6 +75,7 @@ export class ProviderRegistry {
         if (!provider) {
           throw new Error(`Provider not found: ${providerId}`);
         }
+        await this.initProvider(provider);
         const sessions = await provider.listSessions();
         return sessions.map((session) => {
           const environment =
@@ -95,6 +98,7 @@ export class ProviderRegistry {
 
   async createSession(input: CreateAgentSessionInput & { environment: EnvironmentConfig }): Promise<AgentSessionSummary> {
     const provider = this.providerForEnvironment(input.environment);
+    await this.initProvider(provider);
     const session = await provider.createSession({
       ...input,
       cwd: input.cwd ?? input.environment.defaultCwd
@@ -127,6 +131,7 @@ export class ProviderRegistry {
 
   async getSessionMessages(sessionKey: string, environment?: EnvironmentConfig, limit?: number): Promise<AgentSessionMessage[]> {
     const resolved = this.resolveSession(sessionKey, environment);
+    await this.initProvider(resolved.provider);
     const messages = await resolved.provider.getSessionMessages(resolved.sessionKey, limit);
     return messages.map((message) => ({
       ...message,
@@ -152,6 +157,30 @@ export class ProviderRegistry {
       throw new Error(`Provider not found for environment ${environment.id}: ${environment.providerId}`);
     }
     return provider;
+  }
+
+  private async initProvider(provider: AgentProvider): Promise<void> {
+    if (this.initialized.has(provider.id)) {
+      return;
+    }
+    const existing = this.initializing.get(provider.id);
+    if (existing) {
+      await existing;
+      return;
+    }
+    const pending = provider.init().then(
+      () => {
+        this.initialized.add(provider.id);
+      },
+      (error) => {
+        this.initialized.delete(provider.id);
+        throw error;
+      }
+    ).finally(() => {
+      this.initializing.delete(provider.id);
+    });
+    this.initializing.set(provider.id, pending);
+    await pending;
   }
 }
 

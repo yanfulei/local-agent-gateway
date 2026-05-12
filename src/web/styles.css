@@ -612,6 +612,127 @@ small,
   min-height: 0;
 }
 
+.provider-page {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+  gap: 14px;
+  align-content: start;
+  min-height: 0;
+  overflow: auto;
+  padding-right: 2px;
+}
+
+.provider-card {
+  display: grid;
+  gap: 14px;
+  align-content: start;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  padding: 16px;
+  min-width: 0;
+  box-shadow: var(--shadow-subtle);
+}
+
+.provider-card.disabled {
+  background: var(--color-surface-muted);
+}
+
+.provider-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+}
+
+.provider-card-header > div {
+  min-width: 0;
+}
+
+.provider-card-header h3 {
+  margin-top: 6px;
+  overflow: hidden;
+  color: var(--color-text);
+  font-size: 17px;
+  font-weight: 850;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.provider-card-header p {
+  margin-top: 4px;
+  overflow: hidden;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.provider-type-pill,
+.capability-chip {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-muted);
+  color: var(--color-text-secondary);
+  padding: 3px 7px;
+  font-size: var(--font-size-xs);
+  font-weight: 800;
+  line-height: 1.25;
+}
+
+.provider-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  min-width: 0;
+}
+
+.provider-form .checkbox {
+  align-content: end;
+}
+
+.provider-capabilities {
+  display: grid;
+  gap: 8px;
+  border-top: 1px solid var(--color-border);
+  padding-top: 12px;
+  min-width: 0;
+}
+
+.provider-capabilities h4 {
+  margin: 0;
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+  font-weight: 850;
+}
+
+.provider-capabilities > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.capability-chip {
+  border-color: #dbeafe;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.capability-chip.muted-chip {
+  border-color: var(--color-border);
+  background: var(--color-neutral-bg);
+  color: var(--color-text-muted);
+}
+
+.provider-actions {
+  display: flex;
+  justify-content: flex-start;
+}
+
 .bot-config-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -2527,6 +2648,11 @@ pre {
   }
 
   .bot-config-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .provider-page,
+  .provider-form {
     grid-template-columns: 1fr;
   }
 

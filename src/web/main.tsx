@@ -13,6 +13,7 @@ import type {
   GatewayEvent,
   GatewayTask,
   AttachmentInput,
+  ProviderCapability,
   TaskStatus
 } from "../shared/types.js";
 import "./styles.css";
@@ -41,7 +42,11 @@ type Translations = {
   gatewaySettings: string;
   feishuBots: string;
   channelOutputs: string;
-  pageDescriptions: Record<"tasks" | "logs" | "bots" | "settings", string>;
+  providersTitle: string;
+  providerManagement: string;
+  providerConfigSummary: string;
+  providerCapabilities: string;
+  pageDescriptions: Record<"tasks" | "logs" | "bots" | "providers" | "settings", string>;
   threadsTitle: string;
   threadsSubtitle: string;
   refresh: string;
@@ -89,6 +94,9 @@ type Translations = {
     | "codexCommand"
     | "appServerListen"
     | "preferAppServer"
+    | "providerName"
+    | "providerCommand"
+    | "providerEnabled"
     | "name"
     | "channel"
     | "appId"
@@ -121,6 +129,9 @@ type Translations = {
     | "codexCommand"
     | "appServerListen"
     | "preferAppServer"
+    | "providerName"
+    | "providerCommand"
+    | "providerEnabled"
     | "name"
     | "channel"
     | "appId"
@@ -151,6 +162,7 @@ type Translations = {
     | "deleteEnvironment"
     | "createEnvironment"
     | "saveBot"
+    | "saveProvider"
     | "editBot"
     | "enableBot"
     | "disableBot"
@@ -192,6 +204,9 @@ type Translations = {
     | "savingBot"
     | "savedBot"
     | "saveBotFailed"
+    | "savingProvider"
+    | "savedProvider"
+    | "saveProviderFailed"
     | "creatingBot"
     | "createdBot"
     | "createBotFailed"
@@ -269,10 +284,15 @@ const translations: Record<Locale, Translations> = {
     gatewaySettings: "网关设置",
     feishuBots: "飞书出口",
     channelOutputs: "即时通讯出口",
+    providersTitle: "Provider 管理",
+    providerManagement: "本地智能体 Provider",
+    providerConfigSummary: "连接方式、能力声明和本机命令",
+    providerCapabilities: "已支持能力",
     pageDescriptions: {
       tasks: "当前环境下所有来自网页和飞书的执行任务，按本地智能体会话串行进入队列。",
       logs: "当前环境的网关日志、Provider 运行日志和渠道事件日志，用于排查远程控制链路。",
       bots: "全局管理飞书机器人出口；每个出口显式绑定到一个环境里的一个本地智能体会话。",
+      providers: "管理本机智能体适配器。MVP 只启用 Codex，但配置和能力模型按多 Provider 扩展设计。",
       settings: "对整个网关生效的本地配置。环境内默认目录、会话绑定和飞书出口在各自页面维护。"
     },
     threadsTitle: "智能体会话",
@@ -322,6 +342,9 @@ const translations: Record<Locale, Translations> = {
       codexCommand: "Codex 命令",
       appServerListen: "App-server 监听",
       preferAppServer: "优先使用 Codex app-server",
+      providerName: "Provider 名称",
+      providerCommand: "本机命令",
+      providerEnabled: "启用 Provider",
       name: "名称",
       appId: "App ID",
       appSecret: "App Secret",
@@ -351,8 +374,11 @@ const translations: Record<Locale, Translations> = {
       environmentDefault: "默认环境用于兼容旧接口和初始进入页面；飞书消息仍严格按机器人绑定的环境和会话路由。",
       defaultCwd: "新建本地智能体会话时默认进入的目录。建议填写常用项目根目录；单个会话仍可单独指定目录。",
       codexCommand: "用于拉起本机 Codex 的命令。默认 codex；如果 PATH 找不到，可以填写完整可执行文件路径。",
-      appServerListen: "Codex remote-control/app-server 的连接地址。当前 MVP 默认使用 stdio:// 由网关直接启动和通信。",
+      appServerListen: "Codex app-server 的传输方式。当前 MVP 只支持 stdio://，由网关直接启动 Codex 并通过标准输入输出通信；ws:// 和 unix:// 后续会作为独立 transport 实现。",
       preferAppServer: "开启后优先走 Codex 实验性 app-server/remote-control 能力；关闭时退回到命令执行模式。",
+      providerName: "Provider 是网关和本机智能体之间的适配器。名称只影响控制台展示，不改变底层会话。",
+      providerCommand: "Provider 调用本机智能体的可执行命令。Codex 默认是 codex；以后接 Claude Code、OpenClaw 或 ACP 时也走同一类配置。",
+      providerEnabled: "关闭后保留配置，但不建议新建环境继续选择它。MVP 只完整实现 Codex Provider。",
       name: "只在本地控制台展示，用来区分多个飞书机器人。",
       channel: "选择即时通讯平台。MVP 支持飞书，钉钉和微信预留为后续渠道适配。",
       appId: "飞书开放平台自建应用的 App ID。每个机器人独立配置一组飞书凭据。",
@@ -387,6 +413,7 @@ const translations: Record<Locale, Translations> = {
       deleteEnvironment: "删除环境",
       createEnvironment: "创建环境",
       saveBot: "保存机器人",
+      saveProvider: "保存 Provider",
       editBot: "编辑配置",
       enableBot: "启用",
       disableBot: "禁用",
@@ -427,6 +454,9 @@ const translations: Record<Locale, Translations> = {
       savingBot: "正在保存机器人配置...",
       savedBot: "机器人配置已保存",
       saveBotFailed: "保存机器人配置失败",
+      savingProvider: "正在保存 Provider...",
+      savedProvider: "Provider 已保存",
+      saveProviderFailed: "保存 Provider 失败",
       creatingBot: "正在创建机器人...",
       createdBot: "机器人已创建",
       createBotFailed: "创建机器人失败",
@@ -558,10 +588,15 @@ const translations: Record<Locale, Translations> = {
     gatewaySettings: "Gateway Settings",
     feishuBots: "Feishu Outputs",
     channelOutputs: "Messaging Outputs",
+    providersTitle: "Provider Management",
+    providerManagement: "Local Agent Providers",
+    providerConfigSummary: "Connection mode, capabilities, and local command",
+    providerCapabilities: "Supported Capabilities",
     pageDescriptions: {
       tasks: "All web and Feishu execution tasks in the current environment, queued serially into local agent sessions.",
       logs: "Gateway, provider, and channel event logs for diagnosing the remote-control path in the current environment.",
       bots: "Manage Feishu output bots globally. Each bot explicitly binds to one local agent session in one environment.",
+      providers: "Manage local agent adapters. The MVP only enables Codex, but the configuration and capability model are designed for multiple providers.",
       settings: "Local settings that apply to the whole gateway. Environment defaults, session bindings, and bots live in their own pages."
     },
     threadsTitle: "Agent Sessions",
@@ -611,6 +646,9 @@ const translations: Record<Locale, Translations> = {
       codexCommand: "Codex Command",
       appServerListen: "App-server Listen",
       preferAppServer: "Prefer Codex app-server",
+      providerName: "Provider Name",
+      providerCommand: "Local Command",
+      providerEnabled: "Enable Provider",
       name: "Name",
       appId: "App ID",
       appSecret: "App Secret",
@@ -640,8 +678,11 @@ const translations: Record<Locale, Translations> = {
       environmentDefault: "The default environment is used for legacy APIs and initial page load. Feishu messages still route by each bot's explicit environment and session binding.",
       defaultCwd: "Default directory for newly created local agent sessions. Use a common project root; each session can still override it.",
       codexCommand: "Command used to start local Codex. The default is codex; use a full executable path if PATH cannot resolve it.",
-      appServerListen: "Connection address for Codex remote-control/app-server. The MVP defaults to stdio:// so the gateway starts and talks to Codex directly.",
+      appServerListen: "Codex app-server transport. The MVP only supports stdio://, where the gateway starts Codex and talks over standard input/output. ws:// and unix:// should be implemented later as separate transports.",
       preferAppServer: "When enabled, the gateway prefers Codex experimental app-server/remote-control. When disabled, it falls back to command execution mode.",
+      providerName: "A provider adapts the gateway to a local agent. The name only changes console display, not the underlying session.",
+      providerCommand: "Executable command used by the provider. Codex defaults to codex; future Claude Code, OpenClaw, or ACP adapters should follow the same class of configuration.",
+      providerEnabled: "Keeps the provider config but marks it inactive. The MVP fully implements only the Codex provider.",
       name: "Local display name used to distinguish multiple Feishu bots.",
       channel: "Choose the messaging platform. The MVP supports Lark; DingTalk and WeChat are reserved for future adapters.",
       appId: "App ID from your Feishu custom app. Each bot has an independent Feishu credential set.",
@@ -676,6 +717,7 @@ const translations: Record<Locale, Translations> = {
       deleteEnvironment: "Delete Environment",
       createEnvironment: "Create Environment",
       saveBot: "Save Bot",
+      saveProvider: "Save Provider",
       editBot: "Edit Config",
       enableBot: "Enable",
       disableBot: "Disable",
@@ -716,6 +758,9 @@ const translations: Record<Locale, Translations> = {
       savingBot: "Saving bot configuration...",
       savedBot: "Bot configuration saved",
       saveBotFailed: "Failed to save bot configuration",
+      savingProvider: "Saving provider...",
+      savedProvider: "Provider saved",
+      saveProviderFailed: "Failed to save provider",
       creatingBot: "Creating bot...",
       createdBot: "Bot created",
       createBotFailed: "Failed to create bot",
@@ -875,6 +920,17 @@ const emptyState: DashboardState = {
         name: "Codex",
         enabled: true,
         command: "codex",
+        capabilities: [
+          "session.list",
+          "session.create",
+          "session.history",
+          "message.send",
+          "attachment.input",
+          "task.cancel",
+          "approval",
+          "app-server",
+          "exec-fallback"
+        ],
         preferAppServer: true,
         appServerListen: "stdio://"
       }
@@ -897,7 +953,7 @@ function App() {
   const [selectedThreadId, setSelectedThreadId] = useState<string>("");
   const [locale, setLocale] = useState<Locale>(getInitialLocale);
   const [toast, setToast] = useState<Toast | undefined>();
-  const [page, setPage] = useState<"environment" | "newEnvironment" | "tasks" | "logs" | "settings">("environment");
+  const [page, setPage] = useState<"environment" | "newEnvironment" | "providers" | "tasks" | "logs" | "settings">("environment");
   const [settingsTab, setSettingsTab] = useState<"gateway" | "outputs">("gateway");
   const t = translations[locale];
 
@@ -1076,6 +1132,12 @@ function App() {
               {t.taskQueue}
             </button>
             <button
+              className={page === "providers" ? "active" : ""}
+              onClick={() => setPage("providers")}
+            >
+              {t.providersTitle}
+            </button>
+            <button
               className={page === "logs" ? "active" : ""}
               onClick={() => setPage("logs")}
             >
@@ -1212,6 +1274,17 @@ function App() {
       {page === "tasks" ? (
         <PageSurface title={t.taskQueue} description={t.pageDescriptions.tasks} scope={selectedEnvironment?.name}>
           <TaskList tasks={environmentTasks} t={t} runWithToast={runWithToast} />
+        </PageSurface>
+      ) : null}
+
+      {page === "providers" ? (
+        <PageSurface title={t.providersTitle} description={t.pageDescriptions.providers} scope={t.providerManagement}>
+          <ProviderList
+            state={state}
+            onReload={loadState}
+            runWithToast={runWithToast}
+            t={t}
+          />
         </PageSurface>
       ) : null}
 
@@ -1701,17 +1774,11 @@ function ConfigPanel({
   t: Translations;
 }) {
   const [defaultCwd, setDefaultCwd] = useState(state.config.defaultCwd);
-  const [codexCommand, setCodexCommand] = useState(state.config.codex.command);
-  const [preferAppServer, setPreferAppServer] = useState(state.config.codex.preferAppServer);
-  const [appServerListen, setAppServerListen] = useState(state.config.codex.appServerListen);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     setDefaultCwd(state.config.defaultCwd);
-    setCodexCommand(state.config.codex.command);
-    setPreferAppServer(state.config.codex.preferAppServer);
-    setAppServerListen(state.config.codex.appServerListen);
-  }, [state.config.defaultCwd, state.config.codex]);
+  }, [state.config.defaultCwd]);
 
   async function save() {
     if (saving) {
@@ -1724,12 +1791,7 @@ function ConfigPanel({
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            defaultCwd,
-            codex: {
-              command: codexCommand,
-              preferAppServer,
-              appServerListen
-            }
+            defaultCwd
           })
         });
         await onReload();
@@ -1757,25 +1819,163 @@ function ConfigPanel({
           placeholder={t.placeholders.defaultCwd}
         />
       </label>
-      <label>
-        <FieldLabel label={t.fields.codexCommand} help={t.help.codexCommand} />
-        <input value={codexCommand} onChange={(event) => setCodexCommand(event.target.value)} />
-      </label>
-      <label>
-        <FieldLabel label={t.fields.appServerListen} help={t.help.appServerListen} />
-        <input value={appServerListen} onChange={(event) => setAppServerListen(event.target.value)} />
-      </label>
-      <label className="checkbox">
-        <input
-          type="checkbox"
-          checked={preferAppServer}
-          onChange={(event) => setPreferAppServer(event.target.checked)}
-        />
-        <span className="checkbox-copy">
-          <FieldLabel label={t.fields.preferAppServer} help={t.help.preferAppServer} />
-        </span>
-      </label>
       <button disabled={saving} onClick={() => void save()}>{t.actions.saveSettings}</button>
+    </div>
+  );
+}
+
+function ProviderList({
+  state,
+  onReload,
+  runWithToast,
+  t
+}: {
+  state: DashboardState;
+  onReload: () => Promise<void>;
+  runWithToast: RunWithToast;
+  t: Translations;
+}) {
+  const [drafts, setDrafts] = useState<Record<string, DashboardState["config"]["providers"][number]>>({});
+  const [pendingProviderId, setPendingProviderId] = useState<string | undefined>();
+
+  useEffect(() => {
+    setDrafts((current) => {
+      const next: Record<string, DashboardState["config"]["providers"][number]> = {};
+      for (const provider of state.config.providers) {
+        next[provider.id] = current[provider.id] ? { ...provider, ...current[provider.id] } : provider;
+      }
+      return next;
+    });
+  }, [state.config.providers]);
+
+  function patchProvider(providerId: string, patch: Partial<DashboardState["config"]["providers"][number]>) {
+    setDrafts((current) => {
+      const base = current[providerId] ?? state.config.providers.find((provider) => provider.id === providerId);
+      return base ? { ...current, [providerId]: { ...base, ...patch } } : current;
+    });
+  }
+
+  async function saveProvider(providerId: string) {
+    const draft = drafts[providerId] ?? state.config.providers.find((provider) => provider.id === providerId);
+    if (!draft || pendingProviderId) {
+      return;
+    }
+    setPendingProviderId(providerId);
+    await runWithToast(
+      async () => {
+        await checkedFetch(`/api/providers/${encodeURIComponent(providerId)}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name: draft.name,
+            enabled: draft.enabled,
+            command: draft.command,
+            preferAppServer: draft.preferAppServer,
+            appServerListen: draft.appServerListen
+          })
+        });
+        await onReload();
+      },
+      {
+        loading: t.toast.savingProvider,
+        success: t.toast.savedProvider,
+        error: t.toast.saveProviderFailed
+      }
+    );
+    setPendingProviderId(undefined);
+  }
+
+  return (
+    <div className="provider-page">
+      {state.config.providers.map((provider) => {
+        const draft = drafts[provider.id] ?? provider;
+        const implemented = provider.type === "codex";
+        const capabilityLabels = provider.capabilities?.length
+          ? provider.capabilities.map((capability) => providerCapabilityLabel(capability, t))
+          : [];
+        return (
+          <article className={`provider-card ${implemented ? "" : "disabled"}`} key={provider.id}>
+            <header className="provider-card-header">
+              <div>
+                <span className="provider-type-pill">{t.providerType[provider.type]}</span>
+                <h3 title={provider.name}>{provider.name}</h3>
+                <p>{t.providerConfigSummary}</p>
+              </div>
+              <span className={`status ${draft.enabled ? "connected" : "disabled"}`}>
+                {draft.enabled ? t.botStatus.connected : t.botStatus.disabled}
+              </span>
+            </header>
+            <div className="provider-form">
+              <label>
+                <FieldLabel label={t.fields.providerName} help={t.help.providerName} />
+                <input
+                  value={draft.name}
+                  disabled={!implemented}
+                  onChange={(event) => patchProvider(provider.id, { name: event.target.value })}
+                />
+              </label>
+              <label>
+                <FieldLabel label={t.fields.providerCommand} help={t.help.providerCommand} />
+                <input
+                  value={draft.command}
+                  disabled={!implemented}
+                  onChange={(event) => patchProvider(provider.id, { command: event.target.value })}
+                />
+              </label>
+              {provider.type === "codex" ? (
+                <>
+                  <label>
+                    <FieldLabel label={t.fields.appServerListen} help={t.help.appServerListen} />
+                    <input
+                      value={draft.appServerListen ?? "stdio://"}
+                      readOnly
+                      onChange={(event) => patchProvider(provider.id, { appServerListen: event.target.value })}
+                    />
+                  </label>
+                  <label className="checkbox">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(draft.preferAppServer)}
+                      onChange={(event) => patchProvider(provider.id, { preferAppServer: event.target.checked })}
+                    />
+                    <span className="checkbox-copy">
+                      <FieldLabel label={t.fields.preferAppServer} help={t.help.preferAppServer} />
+                    </span>
+                  </label>
+                </>
+              ) : null}
+              <label className="checkbox">
+                <input
+                  type="checkbox"
+                  checked={draft.enabled}
+                  disabled={!implemented}
+                  onChange={(event) => patchProvider(provider.id, { enabled: event.target.checked })}
+                />
+                <span className="checkbox-copy">
+                  <FieldLabel label={t.fields.providerEnabled} help={t.help.providerEnabled} />
+                </span>
+              </label>
+            </div>
+            <section className="provider-capabilities">
+              <h4>{t.providerCapabilities}</h4>
+              <div>
+                {capabilityLabels.length
+                  ? capabilityLabels.map((label) => <span className="capability-chip" key={label}>{label}</span>)
+                  : <span className="capability-chip muted-chip">{t.options.comingSoon}</span>}
+              </div>
+            </section>
+            <footer className="provider-actions">
+              <button
+                className="primary-action"
+                disabled={!implemented || Boolean(pendingProviderId)}
+                onClick={() => void saveProvider(provider.id)}
+              >
+                {pendingProviderId === provider.id ? t.toast.savingProvider : t.actions.saveProvider}
+              </button>
+            </footer>
+          </article>
+        );
+      })}
     </div>
   );
 }
@@ -3809,6 +4009,32 @@ function providerLabel(thread: CodexThreadSummary, t: Translations): string {
 
 function botLabel(bot: FeishuBotConfig, t: Translations): string {
   return `${t.channelType[bot.channelType]} / ${bot.name}`;
+}
+
+function providerCapabilityLabel(capability: ProviderCapability, t: Translations): string {
+  const zh: Record<ProviderCapability, string> = {
+    "session.list": "会话发现",
+    "session.create": "创建会话",
+    "session.history": "历史对话",
+    "message.send": "发送消息",
+    "attachment.input": "附件输入",
+    "task.cancel": "取消任务",
+    approval: "审批",
+    "app-server": "App Server",
+    "exec-fallback": "Exec 兜底"
+  };
+  const en: Record<ProviderCapability, string> = {
+    "session.list": "List Sessions",
+    "session.create": "Create Session",
+    "session.history": "History",
+    "message.send": "Send Message",
+    "attachment.input": "Attachments",
+    "task.cancel": "Cancel",
+    approval: "Approval",
+    "app-server": "App Server",
+    "exec-fallback": "Exec Fallback"
+  };
+  return t.documentTitle === translations.zh.documentTitle ? zh[capability] : en[capability];
 }
 
 function csvToList(value: string): string[] {

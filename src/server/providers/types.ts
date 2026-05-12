@@ -3,6 +3,7 @@ import type {
   AgentSessionSummary,
   AttachmentInput,
   GatewayTask,
+  ProviderCapability,
   ProviderType,
   TaskMessage
 } from "../../shared/types.js";
@@ -22,6 +23,7 @@ export type AgentAttachmentContent = {
 export interface AgentProvider {
   readonly id: string;
   readonly type: ProviderType;
+  readonly capabilities: readonly ProviderCapability[];
   init(): Promise<void>;
   listSessions(): Promise<AgentSessionSummary[]>;
   createSession(input: CreateAgentSessionInput): Promise<AgentSessionSummary>;

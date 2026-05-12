@@ -6,9 +6,9 @@ import cors from "cors";
 import fastifyPlugin from "fastify-plugin";
 import type { FastifyInstance } from "fastify";
 import type { CodexAppServerClient } from "./codex/appServerClient.js";
+import type { ChannelRegistry } from "./channels/channelRegistry.js";
 import type { ConfigStore } from "./configStore.js";
 import type { GatewayEventBus } from "./events.js";
-import type { FeishuBotManager } from "./feishu/feishuBotManager.js";
 import type { Logger } from "./logger.js";
 import type { TaskQueue } from "./taskQueue.js";
 import type { ProviderRegistry } from "./providers/providerRegistry.js";
@@ -23,6 +23,7 @@ import type {
   SendMessageInput,
   UpdateConfigInput,
   UpdateEnvironmentInput,
+  UpdateProviderInput,
   UpdateBotInput,
   UpdateThreadBindingInput
 } from "../shared/types.js";
@@ -31,7 +32,7 @@ export type ApiDeps = {
   configStore: ConfigStore;
   providers: ProviderRegistry;
   taskQueue: TaskQueue;
-  feishuBotManager: FeishuBotManager;
+  channels: ChannelRegistry;
   events: GatewayEventBus;
   logger: Logger;
   appServer: CodexAppServerClient;
@@ -67,9 +68,22 @@ export async function registerApi(app: FastifyInstance, deps: ApiDeps): Promise<
     if (request.body.codex && JSON.stringify(before) !== JSON.stringify(config.codex)) {
       await deps.appServer.stop();
     }
-    await deps.feishuBotManager.syncAll();
+    await deps.channels.syncAll();
     return config;
   });
+
+  app.patch<{ Params: { providerId: string }; Body: UpdateProviderInput }>(
+    "/api/providers/:providerId",
+    async (request) => {
+      const before = deps.configStore.get().codex;
+      const provider = await deps.configStore.updateProvider(request.params.providerId, request.body);
+      const after = deps.configStore.get().codex;
+      if (provider.type === "codex" && JSON.stringify(before) !== JSON.stringify(after)) {
+        await deps.appServer.stop();
+      }
+      return provider;
+    }
+  );
 
   app.post<{ Body: CreateEnvironmentInput }>("/api/environments", async (request) => {
     const environment = await deps.configStore.addEnvironment(request.body);
@@ -89,13 +103,13 @@ export async function registerApi(app: FastifyInstance, deps: ApiDeps): Promise<
 
   app.delete<{ Params: { environmentId: string } }>("/api/environments/:environmentId", async (request) => {
     const config = await deps.configStore.deleteEnvironment(request.params.environmentId);
-    await deps.feishuBotManager.syncAll();
+    await deps.channels.syncAll();
     return config;
   });
 
   app.post<{ Body: CreateBotInput }>("/api/bots", async (request) => {
     const bot = await deps.configStore.addBot(request.body);
-    await deps.feishuBotManager.syncAll();
+    await deps.channels.syncAll();
     return bot;
   });
 
@@ -103,14 +117,14 @@ export async function registerApi(app: FastifyInstance, deps: ApiDeps): Promise<
     "/api/bots/:botId",
     async (request) => {
       const bot = await deps.configStore.updateBot(request.params.botId, request.body);
-      await deps.feishuBotManager.syncAll();
+      await deps.channels.syncAll();
       return bot;
     }
   );
 
   app.delete<{ Params: { botId: string } }>("/api/bots/:botId", async (request) => {
     await deps.configStore.deleteBot(request.params.botId);
-    await deps.feishuBotManager.syncAll();
+    await deps.channels.syncAll();
     return { ok: true };
   });
 
@@ -152,7 +166,7 @@ export async function registerApi(app: FastifyInstance, deps: ApiDeps): Promise<
     });
     if (request.body.bindBotId) {
       await deps.configStore.bindSessionToBot(session.sessionKey, request.body.bindBotId, environment.id);
-      await deps.feishuBotManager.syncAll();
+      await deps.channels.syncAll();
     }
     return session;
   }
@@ -185,7 +199,7 @@ export async function registerApi(app: FastifyInstance, deps: ApiDeps): Promise<
         request.body.botId || undefined,
         environment.id
       );
-      await deps.feishuBotManager.syncAll();
+      await deps.channels.syncAll();
       return config;
     }
   );
@@ -200,7 +214,7 @@ export async function registerApi(app: FastifyInstance, deps: ApiDeps): Promise<
         request.body.botId || undefined,
         environment.id
       );
-      await deps.feishuBotManager.syncAll();
+      await deps.channels.syncAll();
       return config;
     }
   );
@@ -215,7 +229,7 @@ export async function registerApi(app: FastifyInstance, deps: ApiDeps): Promise<
         request.body.botId || undefined,
         environment.id
       );
-      await deps.feishuBotManager.syncAll();
+      await deps.channels.syncAll();
       return config;
     }
   );
@@ -328,9 +342,13 @@ export async function registerApi(app: FastifyInstance, deps: ApiDeps): Promise<
     async (request) => deps.taskQueue.approve(request.params.taskId, Boolean(request.body.approved))
   );
 
-  app.post<{ Params: { botId: string } }>("/webhook/card/:botId", async (request) =>
-    deps.feishuBotManager.handleCardCallback(request.params.botId, request.body)
-  );
+  app.post<{ Params: { botId: string } }>("/webhook/card/:botId", async (request) => {
+    const bot = deps.configStore.get().bots.find((item) => item.id === request.params.botId);
+    if (!bot) {
+      throw new Error(`Bot not found: ${request.params.botId}`);
+    }
+    return deps.channels.handleCardCallback(bot.channelType, bot, request.body);
+  });
 
   app.get<{ Params: { taskId: string } }>("/api/tasks/:taskId/log", async (request, reply) => {
     const task = deps.taskQueue.get(request.params.taskId);

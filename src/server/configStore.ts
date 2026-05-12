@@ -11,8 +11,10 @@ import type {
   ProviderConfig,
   UpdateConfigInput,
   UpdateEnvironmentInput,
+  UpdateProviderInput,
   UpdateBotInput
 } from "../shared/types.js";
+import { CODEX_PROVIDER_CAPABILITIES, PROVIDER_CAPABILITIES } from "../shared/types.js";
 import { CONFIG_PATH, DATA_DIR } from "./paths.js";
 import { ensureDir, readJsonFile, writeJsonFile } from "./utils/files.js";
 import { nowIso } from "./utils/time.js";
@@ -71,6 +73,7 @@ const configSchema = z.object({
     name: z.string(),
     enabled: z.boolean(),
     command: z.string(),
+    capabilities: z.array(z.enum(PROVIDER_CAPABILITIES)).optional(),
     preferAppServer: z.boolean().optional(),
     appServerListen: z.string().optional()
   })).default([]),
@@ -105,13 +108,18 @@ export class ConfigStore {
   }
 
   async update(partial: UpdateConfigInput): Promise<GatewayConfig> {
+    const codex = {
+      ...this.config.codex,
+      ...(partial.codex ?? {}),
+      appServerListen: normalizeAppServerListen(partial.codex?.appServerListen ?? this.config.codex.appServerListen)
+    };
     this.config = {
       ...this.config,
       ...partial,
-      codex: {
-        ...this.config.codex,
-        ...(partial.codex ?? {})
-      }
+      codex,
+      providers: partial.providers
+        ? normalizeProviders(partial.providers, codex)
+        : normalizeProviders(this.config.providers, codex)
     };
     this.config.environments = normalizeEnvironments(
       this.config.environments,
@@ -122,6 +130,42 @@ export class ConfigStore {
     this.config.defaultEnvironmentId = defaultEnvironmentId(this.config.environments);
     await this.save();
     return this.get();
+  }
+
+  async updateProvider(providerId: string, input: UpdateProviderInput): Promise<ProviderConfig> {
+    const index = this.config.providers.findIndex((provider) => provider.id === providerId);
+    if (index === -1) {
+      throw new Error(`Provider not found: ${providerId}`);
+    }
+    const previous = this.config.providers[index];
+    if (previous.type !== "codex") {
+      throw new Error(`Provider type is not implemented in the MVP: ${previous.type}`);
+    }
+    const updated: ProviderConfig = {
+      ...previous,
+      name: input.name?.trim() || previous.name,
+      enabled: input.enabled ?? previous.enabled,
+      command: input.command?.trim() || previous.command,
+      preferAppServer: input.preferAppServer ?? previous.preferAppServer,
+      appServerListen: normalizeAppServerListen(input.appServerListen ?? previous.appServerListen),
+      capabilities: providerCapabilities(previous.type)
+    };
+    this.config.providers[index] = updated;
+    if (updated.id === "codex") {
+      this.config.codex = {
+        command: updated.command,
+        preferAppServer: Boolean(updated.preferAppServer),
+        appServerListen: normalizeAppServerListen(updated.appServerListen)
+      };
+    }
+    this.config.environments = normalizeEnvironments(
+      this.config.environments,
+      this.config.providers,
+      this.config.defaultCwd,
+      this.config.defaultEnvironmentId
+    );
+    await this.save();
+    return structuredClone(updated);
   }
 
   defaultEnvironment(): EnvironmentConfig {
@@ -411,7 +455,7 @@ function defaultConfig(): GatewayConfig {
     codex: {
       command: defaultProvider.command,
       preferAppServer: Boolean(defaultProvider.preferAppServer),
-      appServerListen: defaultProvider.appServerListen ?? "stdio://"
+      appServerListen: normalizeAppServerListen(defaultProvider.appServerListen)
     },
     providers: [defaultProvider],
     environments: [defaultEnvironment(defaultProvider, process.cwd())],
@@ -421,18 +465,20 @@ function defaultConfig(): GatewayConfig {
 }
 
 function migrateConfig(config: z.infer<typeof configSchema>): GatewayConfig {
-  const defaultProvider = config.providers.find((provider) => provider.id === "codex") ?? {
+  const rawDefaultProvider = config.providers.find((provider) => provider.id === "codex") ?? {
     ...defaultCodexProvider(),
     command: config.codex.command,
     preferAppServer: config.codex.preferAppServer,
-    appServerListen: "stdio://"
+    appServerListen: normalizeAppServerListen()
   };
+  const providers = normalizeProviders([
+    rawDefaultProvider,
+    ...config.providers.filter((provider) => provider.id !== rawDefaultProvider.id)
+  ], config.codex);
+  const defaultProvider = providers.find((provider) => provider.id === rawDefaultProvider.id) ?? providers[0] ?? defaultCodexProvider();
   const environments = normalizeEnvironments(
     config.environments,
-    [
-      defaultProvider,
-      ...config.providers.filter((provider) => provider.id !== defaultProvider.id)
-    ],
+    providers,
     config.defaultCwd,
     config.defaultEnvironmentId
   );
@@ -450,16 +496,13 @@ function migrateConfig(config: z.infer<typeof configSchema>): GatewayConfig {
       allowedOpenIds: bot.allowedOpenIds ?? [],
       allowedChatIds: bot.allowedChatIds ?? []
     })),
-    providers: [
-      defaultProvider,
-      ...config.providers.filter((provider) => provider.id !== defaultProvider.id)
-    ],
+    providers,
     environments,
     defaultEnvironmentId: defaultEnvId,
     codex: {
       command: defaultProvider.command,
       preferAppServer: Boolean(defaultProvider.preferAppServer),
-      appServerListen: "stdio://"
+      appServerListen: normalizeAppServerListen(defaultProvider.appServerListen)
     }
   };
 }
@@ -475,9 +518,54 @@ function defaultCodexProvider(): ProviderConfig {
     name: "Codex",
     enabled: true,
     command: "codex",
+    capabilities: providerCapabilities("codex"),
     preferAppServer: true,
-    appServerListen: "stdio://"
+    appServerListen: normalizeAppServerListen()
   };
+}
+
+function normalizeProviders(
+  providers: ProviderConfig[],
+  codex: GatewayConfig["codex"]
+): ProviderConfig[] {
+  const normalized: ProviderConfig[] = providers.map((provider) => ({
+    ...provider,
+    name: provider.name?.trim() || providerLabel(provider.type),
+    command: provider.command?.trim() || (provider.type === "codex" ? codex.command || "codex" : provider.command),
+    capabilities: providerCapabilities(provider.type),
+    preferAppServer: provider.type === "codex" ? Boolean(provider.preferAppServer ?? codex.preferAppServer) : provider.preferAppServer,
+    appServerListen: provider.type === "codex" ? normalizeAppServerListen(provider.appServerListen ?? codex.appServerListen) : provider.appServerListen
+  }));
+  if (!normalized.some((provider) => provider.id === "codex")) {
+    normalized.unshift({
+      ...defaultCodexProvider(),
+      command: codex.command || "codex",
+      preferAppServer: codex.preferAppServer,
+      appServerListen: normalizeAppServerListen(codex.appServerListen)
+    });
+  }
+  return normalized;
+}
+
+function providerCapabilities(type: ProviderConfig["type"]): ProviderConfig["capabilities"] {
+  if (type === "codex") {
+    return [...CODEX_PROVIDER_CAPABILITIES];
+  }
+  return [];
+}
+
+function normalizeAppServerListen(_value?: string): "stdio://" {
+  return "stdio://";
+}
+
+function providerLabel(type: ProviderConfig["type"]): string {
+  const labels: Record<ProviderConfig["type"], string> = {
+    codex: "Codex",
+    "claude-code": "Claude Code",
+    openclaw: "OpenClaw",
+    hermes: "Hermes"
+  };
+  return labels[type];
 }
 
 function defaultEnvironment(provider: ProviderConfig, cwd: string): EnvironmentConfig {

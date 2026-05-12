@@ -9,8 +9,8 @@ Local Agent Gateway exposes local agent sessions running on your own computer to
 - Local Web UI for environment switching, environment-scoped sessions, session-to-channel-bot binding, Feishu bot configuration, chat, task queue, logs, and task approvals.
 - Environments are the top-level operating scope. An environment owns its default cwd, provider choice, local agent sessions, tasks, logs, and visible bindings.
 - Local agent sessions are the core working object inside an environment. A session belongs to one provider, for example `codex:<native-session-id>`.
-- Provider layer is an implementation detail of each environment. Codex is the only implemented provider in the MVP, but tasks, logs, sessions, and bindings carry environment and provider identity.
-- Channel layer is explicit. Feishu/Lark is the only implemented channel in the MVP, but bot configs and tasks carry channel identity.
+- Provider layer adapts the gateway to local agent session systems. Codex is the only implemented provider in the MVP, but providers now have their own management page, capability declarations, and API update path for future Claude Code, OpenClaw, Hermes, or ACP-style adapters.
+- Channel layer is explicit. Feishu/Lark is the only implemented channel in the MVP, but the backend now isolates channel runtime through a Channel Adapter/Registry, and bot configs and tasks carry channel identity.
 - Multiple Feishu bots. Each bot has independent App ID, App Secret, Verification Token, Encrypt Key, allowlisted open IDs/chat IDs, output mode, running-message mode, and an explicit active route: `environmentId + sessionKey`.
 - One channel bot can bind one active environment/session route; one session can be bound by multiple channel bots. The Web UI's current environment is only view state and never implicitly reroutes incoming Feishu messages.
 - Feishu long-connection receiving through `WSClient`; a public webhook URL is not required for message events or supported card callbacks.
@@ -21,9 +21,32 @@ Local Agent Gateway exposes local agent sessions running on your own computer to
 - Web UI file upload passes local attachments to Codex; task attachment folders are cleaned up after Codex consumes them.
 - Codex sessions are listed from `codex app-server thread/list`, with `~/.codex/sessions` and `~/.codex/session_index.jsonl` scanning retained as a local fallback.
 - Gateway-created sessions are backed by Codex app-server thread IDs and can be bound to bots.
-- Task execution uses `codex app-server --listen stdio://` JSON-RPC `thread/start`, `thread/resume`, `turn/start`, and `turn/interrupt`.
+- Task execution uses `codex app-server --listen stdio://` JSON-RPC `thread/start`, `thread/resume`, `turn/start`, and `turn/interrupt`. The MVP only implements the stdio transport; `ws://` and `unix://` should be enabled later through dedicated transports.
 - Codex status events are translated into gateway task states: thinking, running command, generating diff, waiting approval, completed, failed, and cancelled.
 - Raw Codex app-server notifications are written to per-task log files while structured status is streamed to the Web UI and Feishu cards.
+
+## Architecture
+
+```text
+Local agent session
+  -> Provider Adapter (Codex MVP)
+  -> Gateway Core (environment, routing, queue, logs, approvals, attachments)
+  -> Channel Adapter (Feishu/Lark MVP)
+  -> IM bot
+```
+
+Code boundaries:
+
+- `src/shared`: business types shared by the Web UI and server.
+- `src/server/providers`: provider abstraction, session keys, and registry.
+- `src/server/codex`: Codex provider for session discovery, history, task execution, and approval forwarding.
+- `src/server/channels`: channel adapter and registry for dispatching task state to messaging platforms.
+- `src/server/feishu`: Feishu long-connection runtime, attachment download, card actions, and Card V2 rendering.
+- `src/web`: local console for configuration, display, chat, and operator actions. It does not execute agent logic directly.
+
+The useful pattern borrowed from cc-connect is capability-oriented Agent/Platform interfaces, Web-based management, and an ACP extension path. Slash commands, cron, relay, and system-prompt injection are intentionally not included in the MVP because Local Agent Gateway is a router/manager for local agent sessions, not an agent layer.
+
+Compared with cc-connect's Codex integration, this project keeps two aligned ideas: prefer Codex app-server/remote-control for real Codex sessions, and retain `codex exec --json resume` as a fallback execution path. The differences are intentional: this gateway does not inject system prompts, does not modify original Codex session files, and does not manage model-provider configuration for the user.
 
 ## Run
 
@@ -60,8 +83,9 @@ Create a bot in the Web UI with App ID and App Secret. Add Verification Token an
 
 ## Product Model
 
-- Global: server host/port, data directory, Codex command, app-server mode, and other reusable defaults.
+- Global: server host/port, data directory, default working directory, and other reusable defaults.
 - Environment: provider selection, default working directory, enabled/default flags, and the scoped view of sessions, tasks, logs, and bindings.
+- Provider: local agent adapter configuration, command, connection mode, and capability declaration. The Codex provider currently supports session listing, session creation, history, message sending, attachment input, cancellation, approvals, app-server, and exec fallback.
 - Session: provider-native local agent conversation/thread. The gateway discovers it, displays history, sends instructions, and records routing metadata.
 - Channel bot: Feishu/Lark credentials and delivery policy. A bot is globally configured but its active route points to one environment/session pair.
 
@@ -75,13 +99,15 @@ The gateway reads the existing local Codex configuration and does not replace yo
 
 Local data lives under `~/.local-agent-gateway`:
 
-- `config.json`: global settings, environments, bot credentials, explicit environment/session bindings, allowlists, and Codex command settings.
+- `config.json`: global settings, provider configs, environments, bot credentials, explicit environment/session bindings, and allowlists.
 - `state.json`: gateway-created session overlays.
 - `attachments/`: temporary Feishu/Web UI attachments during active tasks.
 - `logs/`: raw per-task Codex app-server output logs.
 - `runtime/`: runtime scratch directory.
 
 MVP stores Feishu credentials in plaintext local JSON, matching the personal local-use scope. Do not commit files from `~/.local-agent-gateway`; they may contain bot credentials, task logs, and local attachment cache.
+
+During development, deleting `~/.local-agent-gateway` is an acceptable way to reset gateway configuration and state. `~/.codex` is the original Codex data source. The gateway only reads Codex history and creates/resumes sessions through Codex app-server/CLI; it must not directly delete, rewrite, or migrate original session files under `~/.codex`.
 
 ## Maintainers
 
