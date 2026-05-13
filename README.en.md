@@ -15,6 +15,7 @@ Local Agent Gateway exposes local agent sessions running on your own computer to
 - One channel bot can bind one active environment/session route; one session can be bound by multiple channel bots. The Web UI's current environment is only view state and never implicitly reroutes incoming Feishu messages.
 - Feishu long-connection receiving through `WSClient`; a public webhook URL is not required for message events or supported card callbacks.
 - Feishu Card JSON 2.0 task cards with status headers, environment/session tags, source-message context, approval buttons, log button, retry button, and cancel button.
+- Feishu processing receipts: the gateway can immediately add a reaction to the original user message, then remove it when the task completes, fails, or is cancelled, giving Hermes-like “processing” feedback.
 - Feishu task logs are sent as a compact V2 preview card plus full Markdown (`.md`) log files.
 - Text replies of `同意` / `拒绝` also resolve pending approvals for that bot/thread.
 - Feishu image and file messages are downloaded through `im.v1.messageResource.get` and passed to Codex as local attachments.
@@ -74,6 +75,7 @@ Enable these capabilities and permissions for the self-built app:
 - Event subscription for `im.message.receive_v1`.
 - Card callback/event delivery for `card.action.trigger` for card buttons.
 - Send messages and update interactive message cards.
+- Add/delete message reactions for processing receipts: `im:message.reactions:write_only`, or an existing `im:message` grant. Missing permission only disables the receipt; tasks still run.
 - Upload files for Markdown task logs.
 - Read/download message resources for images and files.
 

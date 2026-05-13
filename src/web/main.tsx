@@ -108,6 +108,8 @@ type Translations = {
     | "activeThread"
     | "runningMessages"
     | "outputMode"
+    | "processingReceiptEnabled"
+    | "processingReceiptEmoji"
     | "enabled"
     | "title"
     | "workingDirectory"
@@ -143,6 +145,8 @@ type Translations = {
     | "activeThread"
     | "runningMessages"
     | "outputMode"
+    | "processingReceiptEnabled"
+    | "processingReceiptEmoji"
     | "enabled"
     | "title"
     | "workingDirectory"
@@ -355,6 +359,8 @@ const translations: Record<Locale, Translations> = {
       activeThread: "绑定会话",
       runningMessages: "运行中消息处理",
       outputMode: "输出模式",
+      processingReceiptEnabled: "处理中回执",
+      processingReceiptEmoji: "回执表情类型",
       enabled: "启用机器人",
       title: "标题",
       workingDirectory: "工作目录",
@@ -390,6 +396,8 @@ const translations: Record<Locale, Translations> = {
       activeThread: "兼容字段：表示这个飞书机器人当前指向哪个本地智能体会话。建议在会话列表里切换绑定。",
       runningMessages: "排队：当前任务完成后再执行新消息。转为下一步指令：把新消息作为同一会话后续输入，适合远程补充要求。",
       outputMode: "控制飞书卡片和网页控制台展示 Codex 输出的方式：结构化状态、原始输出，或两者同时展示。",
+      processingReceiptEnabled: "收到飞书消息后立即给原消息添加一个表情回复，形成类似 Hermes 的“正在处理”回执。任务完成、失败或取消后会自动移除。",
+      processingReceiptEmoji: "飞书 reaction 的 emoji_type。默认 THINKING；需要飞书应用具备消息表情回复权限。填错时只会影响回执，不影响任务执行。",
       enabled: "开启后网关会启动该飞书机器人的 WSClient。飞书事件配置选择“长连接接收事件”并订阅接收消息事件；回调配置选择“长连接接收回调”即可接收卡片按钮。",
       title: "用于在控制台识别这个本地智能体会话。",
       workingDirectory: "该会话的 cwd。留空时使用网关设置里的默认工作目录。",
@@ -659,6 +667,8 @@ const translations: Record<Locale, Translations> = {
       activeThread: "Bound Session",
       runningMessages: "Messages While Running",
       outputMode: "Output Mode",
+      processingReceiptEnabled: "Processing Receipt",
+      processingReceiptEmoji: "Receipt Emoji Type",
       enabled: "Enable Bot",
       title: "Title",
       workingDirectory: "Working Directory",
@@ -694,6 +704,8 @@ const translations: Record<Locale, Translations> = {
       activeThread: "Compatibility field: the local agent session this Feishu bot currently points to. Prefer switching bindings in the session list.",
       runningMessages: "Queue: run new messages after the current task. Steer next: treat new messages as follow-up input for the same session.",
       outputMode: "Controls whether Feishu cards and the web console show structured state, raw Codex output, or both.",
+      processingReceiptEnabled: "Immediately add a reaction to the original Feishu message as a Hermes-like processing receipt. The gateway removes it when the task completes, fails, or is cancelled.",
+      processingReceiptEmoji: "Feishu reaction emoji_type. The default is THINKING. The Feishu app needs message reaction permission. Invalid values only affect the receipt, not task execution.",
       enabled: "When enabled, the gateway starts this bot's WSClient. In Feishu event config, use long connection for message events; in callback config, use long connection for card buttons.",
       title: "Local display title for this local agent session.",
       workingDirectory: "cwd for this session. Leave empty to use the gateway default working directory.",
@@ -2007,6 +2019,8 @@ function BotList({
     channelType: "lark",
     runningMessageMode: "queue",
     outputMode: "both",
+    processingReceiptEnabled: true,
+    processingReceiptEmoji: "THINKING",
     allowedOpenIds: [],
     allowedChatIds: []
   });
@@ -2064,7 +2078,9 @@ function BotList({
             activeEnvironmentId: environment?.id,
             activeSessionKey: editing.activeSessionKey ?? editing.activeThreadId ?? undefined,
             runningMessageMode: editing.runningMessageMode || "queue",
-            outputMode: editing.outputMode || "both"
+            outputMode: editing.outputMode || "both",
+            processingReceiptEnabled: editing.processingReceiptEnabled ?? true,
+            processingReceiptEmoji: editing.processingReceiptEmoji || "THINKING"
           })
         });
         await onChanged();
@@ -2110,7 +2126,9 @@ function BotList({
             activeEnvironmentId: draft.activeEnvironmentId ?? environment?.id,
             activeSessionKey: draft.activeSessionKey ?? draft.activeThreadId ?? undefined,
             runningMessageMode: draft.runningMessageMode,
-            outputMode: draft.outputMode
+            outputMode: draft.outputMode,
+            processingReceiptEnabled: draft.processingReceiptEnabled,
+            processingReceiptEmoji: draft.processingReceiptEmoji
           })
         });
         await onChanged();
@@ -2146,7 +2164,9 @@ function BotList({
             activeEnvironmentId: bot.activeEnvironmentId ?? environment?.id,
             activeSessionKey: bot.activeSessionKey ?? bot.activeThreadId ?? undefined,
             runningMessageMode: bot.runningMessageMode,
-            outputMode: bot.outputMode
+            outputMode: bot.outputMode,
+            processingReceiptEnabled: bot.processingReceiptEnabled,
+            processingReceiptEmoji: bot.processingReceiptEmoji
           })
         });
         await onChanged();
@@ -2336,6 +2356,24 @@ function BotList({
             value={draft.allowedChatIds?.join(", ") ?? ""}
             onChange={(event) => onPatch({ allowedChatIds: csvToList(event.target.value) })}
             placeholder={t.placeholders.allowedChats}
+          />
+        </label>
+        <label className="checkbox">
+          <input
+            type="checkbox"
+            checked={draft.processingReceiptEnabled ?? true}
+            onChange={(event) => onPatch({ processingReceiptEnabled: event.target.checked })}
+          />
+          <span className="checkbox-copy">
+            <FieldLabel label={t.fields.processingReceiptEnabled} help={t.help.processingReceiptEnabled} />
+          </span>
+        </label>
+        <label>
+          <FieldLabel label={t.fields.processingReceiptEmoji} help={t.help.processingReceiptEmoji} />
+          <input
+            value={draft.processingReceiptEmoji ?? "THINKING"}
+            onChange={(event) => onPatch({ processingReceiptEmoji: event.target.value })}
+            placeholder="THINKING"
           />
         </label>
       </>

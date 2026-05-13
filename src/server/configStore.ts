@@ -37,6 +37,8 @@ const botSchema = z.object({
   activeThreadId: z.string().optional(),
   runningMessageMode: z.enum(["steer", "queue"]),
   outputMode: z.enum(["structured", "raw", "both"]),
+  processingReceiptEnabled: z.boolean().default(true),
+  processingReceiptEmoji: z.string().default("THINKING"),
   status: z.enum(["disabled", "disconnected", "connecting", "connected", "error"]),
   statusMessage: z.string().optional(),
   updatedAt: z.string()
@@ -256,6 +258,8 @@ export class ConfigStore {
       channelType: normalizeChannelType(input.channelType),
       allowedOpenIds: input.allowedOpenIds ?? [],
       allowedChatIds: input.allowedChatIds ?? [],
+      processingReceiptEnabled: input.processingReceiptEnabled ?? true,
+      processingReceiptEmoji: normalizeProcessingReceiptEmoji(input.processingReceiptEmoji),
       id: nanoid(),
       status: input.enabled ? "disconnected" : "disabled",
       updatedAt: nowIso()
@@ -281,6 +285,10 @@ export class ConfigStore {
       ...previous,
       ...input,
       channelType: normalizeChannelType(input.channelType ?? previous.channelType),
+      processingReceiptEnabled: input.processingReceiptEnabled ?? previous.processingReceiptEnabled ?? true,
+      processingReceiptEmoji: normalizeProcessingReceiptEmoji(
+        input.processingReceiptEmoji ?? previous.processingReceiptEmoji
+      ),
       status:
         input.status ??
         (typeof input.enabled === "boolean"
@@ -494,7 +502,9 @@ function migrateConfig(config: z.infer<typeof configSchema>): GatewayConfig {
       activeSessionKey: normalizeSessionKeyInput(bot.activeSessionKey ?? bot.activeThreadId),
       activeThreadId: normalizeSessionKeyInput(bot.activeSessionKey ?? bot.activeThreadId),
       allowedOpenIds: bot.allowedOpenIds ?? [],
-      allowedChatIds: bot.allowedChatIds ?? []
+      allowedChatIds: bot.allowedChatIds ?? [],
+      processingReceiptEnabled: bot.processingReceiptEnabled ?? true,
+      processingReceiptEmoji: normalizeProcessingReceiptEmoji(bot.processingReceiptEmoji)
     })),
     providers,
     environments,
@@ -509,6 +519,10 @@ function migrateConfig(config: z.infer<typeof configSchema>): GatewayConfig {
 
 function normalizeChannelType(channelType?: ChannelType | "feishu"): "lark" {
   return channelType === "lark" || channelType === "feishu" ? "lark" : "lark";
+}
+
+function normalizeProcessingReceiptEmoji(value?: string): string {
+  return value?.trim() || "THINKING";
 }
 
 function defaultCodexProvider(): ProviderConfig {

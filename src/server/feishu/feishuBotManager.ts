@@ -46,6 +46,7 @@ type CardUpdateState = {
 export class FeishuBotManager {
   private readonly bots = new Map<string, RuntimeBot>();
   private readonly cardUpdates = new Map<string, CardUpdateState>();
+  private readonly reactionCleanups = new Set<string>();
 
   constructor(
     private readonly configStore: ConfigStore,
@@ -77,6 +78,9 @@ export class FeishuBotManager {
   }
 
   async updateTaskCard(task: GatewayTask): Promise<void> {
+    if (isTerminalTaskStatus(task.status)) {
+      void this.removeProcessingReaction(task);
+    }
     if (!task.botId || !task.feishu?.chatId) {
       return;
     }
@@ -334,18 +338,36 @@ export class FeishuBotManager {
       feishu: {
         chatId: parsed.chatId,
         openId: parsed.openId,
-        messageId: parsed.messageId
+        messageId: parsed.messageId,
+        processingReactionEmoji: bot.processingReceiptEmoji
       }
     };
-    const loadingCardMessageId = await this.replyLoadingTaskCard(botId, message).catch((error: unknown) => {
-      this.logger.warn("Failed to send Feishu loading card", {
-        scope: "feishu",
-        botId,
-        environmentId: resolved.environmentId,
-        data: larkErrorDetail(error)
-      });
-      return undefined;
-    });
+    const [processingReactionId, loadingCardMessageId] = await Promise.all([
+      this.addProcessingReaction(bot, parsed.messageId).catch((error: unknown) => {
+        this.logger.warn("Failed to add Feishu processing receipt", {
+          scope: "feishu",
+          botId,
+          environmentId: resolved.environmentId,
+          data: larkErrorDetail(error)
+        });
+        return undefined;
+      }),
+      this.replyLoadingTaskCard(botId, message).catch((error: unknown) => {
+        this.logger.warn("Failed to send Feishu loading card", {
+          scope: "feishu",
+          botId,
+          environmentId: resolved.environmentId,
+          data: larkErrorDetail(error)
+        });
+        return undefined;
+      })
+    ]);
+    if (processingReactionId) {
+      message.feishu = {
+        ...message.feishu,
+        processingReactionId
+      };
+    }
     if (loadingCardMessageId) {
       message.feishu = {
         ...message.feishu,
@@ -461,6 +483,64 @@ export class FeishuBotManager {
       uuid: `${message.id}-loading`
     });
     return response?.message_id;
+  }
+
+  private async addProcessingReaction(
+    bot: FeishuBotConfig,
+    messageId?: string
+  ): Promise<string | undefined> {
+    if (!bot.processingReceiptEnabled || !messageId) {
+      return undefined;
+    }
+    const runtime = this.bots.get(bot.id);
+    if (!runtime?.client) {
+      return undefined;
+    }
+    const response = await runtime.client.im.v1.messageReaction.create({
+      path: {
+        message_id: messageId
+      },
+      data: {
+        reaction_type: {
+          emoji_type: bot.processingReceiptEmoji || "THINKING"
+        }
+      }
+    });
+    const reactionId = normalizeFeishuReactionResponse(response)?.reaction_id;
+    if (!reactionId) {
+      throw new Error("Feishu reaction create response did not include reaction_id.");
+    }
+    return reactionId;
+  }
+
+  private async removeProcessingReaction(task: GatewayTask): Promise<void> {
+    const botId = task.botId;
+    const messageId = task.feishu?.messageId;
+    const reactionId = task.feishu?.processingReactionId;
+    if (!botId || !messageId || !reactionId || this.reactionCleanups.has(task.id)) {
+      return;
+    }
+    const runtime = this.bots.get(botId);
+    if (!runtime?.client) {
+      return;
+    }
+    this.reactionCleanups.add(task.id);
+    try {
+      await runtime.client.im.v1.messageReaction.delete({
+        path: {
+          message_id: messageId,
+          reaction_id: reactionId
+        }
+      });
+    } catch (error) {
+      this.logger.warn("Failed to remove Feishu processing receipt", {
+        scope: "feishu",
+        botId,
+        taskId: task.id,
+        environmentId: task.environmentId,
+        data: larkErrorDetail(error)
+      });
+    }
   }
 
   private async replyTaskCard(
@@ -646,6 +726,21 @@ function normalizeFeishuMessageResponse(response: unknown): { message_id?: strin
   const data = record.data;
   if (data && typeof data === "object" && typeof (data as Record<string, unknown>).message_id === "string") {
     return { message_id: (data as Record<string, string>).message_id };
+  }
+  return undefined;
+}
+
+function normalizeFeishuReactionResponse(response: unknown): { reaction_id?: string } | undefined {
+  if (!response || typeof response !== "object") {
+    return undefined;
+  }
+  const record = response as Record<string, unknown>;
+  if (typeof record.reaction_id === "string") {
+    return { reaction_id: record.reaction_id };
+  }
+  const data = record.data;
+  if (data && typeof data === "object" && typeof (data as Record<string, unknown>).reaction_id === "string") {
+    return { reaction_id: (data as Record<string, string>).reaction_id };
   }
   return undefined;
 }

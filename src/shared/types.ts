@@ -80,6 +80,8 @@ export type FeishuBotConfig = ChannelBotBase & {
   appSecret: string;
   verificationToken?: string;
   encryptKey?: string;
+  processingReceiptEnabled: boolean;
+  processingReceiptEmoji: string;
 };
 
 export type ChannelBotConfig = FeishuBotConfig;
@@ -187,6 +189,8 @@ export type TaskMessage = {
     openId?: string;
     messageId?: string;
     cardMessageId?: string;
+    processingReactionId?: string;
+    processingReactionEmoji?: string;
   };
 };
 
